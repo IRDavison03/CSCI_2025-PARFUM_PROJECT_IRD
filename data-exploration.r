@@ -2,6 +2,7 @@ library(tidyverse)
 library(dplyr)
 library(ggplot2)
 library(readr)
+library(ggdendro)
 
 tuesdata <- tidytuesdayR::tt_load('2024-12-10')
 
@@ -327,3 +328,136 @@ ggplot(brand_share_data %>% filter(Brand %in% top_10_creamy_brands),
   ) +
   theme_minimal() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Graphs that Aren't line graphs
+
+# 1. Create a FULL binary matrix (not just filtered for creamy)
+# We'll limit this to the Top 50 accords to keep the calculation clean
+top_50_accords <- parfum_year_accords %>%
+  separate_longer_delim(Main_Accords, delim = ", ") %>%
+  count(Main_Accords, sort = TRUE) %>%
+  slice_head(n = 50) %>%
+  pull(Main_Accords)
+
+full_matrix <- parfum_year_accords %>%
+  mutate(row_id = row_number()) %>%
+  separate_longer_delim(Main_Accords, delim = ", ") %>%
+  filter(Main_Accords %in% top_50_accords) %>%
+  mutate(present = 1) %>%
+  pivot_wider(names_from = Main_Accords, values_from = present, values_fill = 0)
+
+# 2. Calculate Correlation of every column with the "Creamy" column
+# We remove metadata columns (row_id, Brand, Release_Year) first
+cor_data <- full_matrix %>%
+  select(where(is.numeric), -row_id, -Release_Year) %>%
+  cor() %>%
+  as.data.frame() %>%
+  select(Creamy) %>%                  # Look specifically at Creamy's relationships
+  rownames_to_column("Accord") %>%
+  filter(Accord != "Creamy") %>%      # Remove the self-correlation (which is 1)
+  slice_max(Creamy, n = 15)           # Get the top 15 strongest correlations
+
+# 3. Build the Correlation Graph
+ggplot(cor_data, aes(x = reorder(Accord, Creamy), y = Creamy, fill = Creamy)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_gradient(low = "navajowhite", high = "chocolate4") +
+  labs(
+    title = "Which Accords are Most 'Attracted' to Creamy?",
+    subtitle = "Correlation coefficient showing the strength of association",
+    x = "Accord",
+    y = "Correlation with 'Creamy'",
+    fill = "Strength"
+  ) +
+  theme_minimal()
+
+
+#HEATMAP
+# 1. Identify the top 25 accords to keep the map clean
+top_accords <- parfum_year_accords %>%
+  separate_longer_delim(Main_Accords, delim = ", ") %>%
+  count(Main_Accords, sort = TRUE) %>%
+  slice_head(n = 25) %>%
+  pull(Main_Accords)
+
+# 2. Create a binary matrix for these accords
+# We use all_of() to ensure we only select the accords in our list
+scent_matrix <- parfum_year_accords %>%
+  mutate(row_id = row_number()) %>%
+  separate_longer_delim(Main_Accords, delim = ", ") %>%
+  filter(Main_Accords %in% top_accords) %>%
+  mutate(present = 1) %>%
+  pivot_wider(names_from = Main_Accords, values_from = present, values_fill = 0) %>%
+  select(all_of(top_accords))
+
+# 3. Calculate the correlation matrix
+# This calculates the Pearson correlation coefficient ($r$) for every pair
+cor_matrix <- cor(scent_matrix)
+
+# 4. Turn the matrix into a "Long" format for ggplot
+cor_long <- as.data.frame(cor_matrix) %>%
+  rownames_to_column("Accord_A") %>%
+  pivot_longer(-Accord_A, names_to = "Accord_B", values_to = "Correlation")
+
+# 5. Generate the Heatmap
+ggplot(cor_long, aes(x = Accord_A, y = Accord_B, fill = Correlation)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = "#0571b0",   # Blue for negative correlation
+    high = "#ca0020",  # Red for positive correlation
+    mid = "white", 
+    midpoint = 0, 
+    limit = c(-0.2, 0.6) # Adjusted limits to highlight subtle relationships
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+    panel.grid.major = element_blank()
+  ) +
+  labs(
+    title = "The Scent Map: Correlation Between Top Accords",
+    subtitle = "Red clusters indicate 'Scent Families' that are frequently paired together",
+    x = NULL, y = NULL
+  )
+
+
+#Branch map attempt
+# 1. Use the correlation matrix we built for the Scent Map
+# We convert correlation (similarity) into "distance" (dissimilarity)
+dist_matrix <- as.dist(1 - cor_matrix)
+
+# 2. Perform Hierarchical Clustering
+clusters <- hclust(dist_matrix, method = "ward.D2")
+
+# 3. Create the Dendrogram plot
+ggdendrogram(clusters, rotate = TRUE, theme_dendro = FALSE) +
+  theme_minimal() +
+  labs(
+    title = "Fragrance Family Tree",
+    subtitle = "Accords grouped by how often they are paired together in formulas",
+    x = "Accord",
+    y = "Distance (Dissimilarity)"
+  ) +
+  theme(
+    axis.text.y = element_text(size = 10),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    panel.grid = element_blank()
+  )
+
+library(dendextend)
+
+# 1. Convert our cluster results into a 'dendrogram' object
+dend <- as.dendrogram(clusters)
+
+# 2. Color the branches based on 5 main scent families (clusters)
+# You can change k = 5 to 4 or 6 depending on how many groups you see
+dend <- dend %>% 
+  color_branches(k = 5) %>% 
+  color_labels(k = 5)
+
+# 3. Plot the results
+# We use 'horiz = TRUE' because it's easier to read the accord names
+par(mar = c(5, 2, 2, 10)) # Adjust margins to make room for labels
+plot(dend, horiz = TRUE, main = "Clustered Scent Families")

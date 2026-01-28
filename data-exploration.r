@@ -204,3 +204,126 @@ brand_trends %>%
   geom_line(linewidth = 1.2) +
   theme_minimal() +
   labs(title = "Top 5 Brands: Creamy Perfume Release Trends")
+
+# Create the subset for 2014
+creamy_2014 <- creamy_matrix %>%
+  filter(Release_Year == 2014)
+
+# View the result in Positron
+View(creamy_2014)
+
+
+
+#Accord trends but from 2010 instead of 2000
+parfum_year_accords_2010 <- parfumo_data_clean %>%
+  select(Name, Brand, Release_Year, Concentration, Main_Accords, Top_Notes, Middle_Notes, Base_Notes) %>%
+  drop_na(Release_Year, Main_Accords) %>%
+  filter(Release_Year > 2009)
+
+perfume_matrix2 <- parfum_year_accords_2010 %>%
+  select(Release_Year, Main_Accords) %>%
+  mutate(row_id = row_number()) %>%             # Keep track of original rows
+  separate_longer_delim(Main_Accords, delim = ", ") %>%
+  mutate(present = 1) %>%                       # Create a marker for the "count"
+  pivot_wider(
+    names_from = Main_Accords, 
+    values_from = present, 
+    values_fill = 0                             # Replace NAs with 0
+  )
+
+
+accord_summary2 <- parfum_year_accords_2010 %>%
+  # 1. Break the list strings into individual rows
+  separate_longer_delim(Main_Accords, delim = ", ") %>%
+  
+  # 2. Group by Year and the Accord name to count occurrences
+  count(Release_Year, Main_Accords) %>%
+  
+  # 3. Pivot the Accords into columns
+  pivot_wider(
+    names_from = Main_Accords, 
+    values_from = n, 
+    values_fill = 0 )
+
+
+# 1. Prepare the data (keep it in long format for ggplot)
+trend_data2 <- parfum_year_accords_2010 %>%
+  separate_longer_delim(Main_Accords, delim = ", ") %>%
+  count(Release_Year, Main_Accords)
+
+# 2. Create the line graph
+ggplot(trend_data, aes(x = Release_Year, y = n, color = Main_Accords)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Scent Trends Over Time",
+    x = "Year of Release",
+    y = "Number of Perfumes",
+    color = "Accord"
+  ) +
+  theme_minimal()
+
+# 1. Calculate the total unique perfumes per year first
+yearly_totals2 <- parfum_year_accords_2010 %>%
+  group_by(Release_Year) %>%
+  summarize(total_perfumes_that_year = n())
+
+# 2. Break down accords and join with the totals
+trend_percentage_data2 <- parfum_year_accords_2010 %>%
+  separate_longer_delim(Main_Accords, delim = ", ") %>%
+  count(Release_Year, Main_Accords) %>%
+  left_join(yearly_totals, by = "Release_Year") %>%
+  mutate(pct = (n / total_perfumes_that_year) * 100)
+
+# 3. Plot the percentage trend
+ggplot(trend_percentage_data2, aes(x = Release_Year, y = pct, color = Main_Accords)) +
+  geom_line(linewidth = 1) +
+  scale_x_continuous(breaks = seq(min(brand_trends$Release_Year), 
+                                  max(brand_trends$Release_Year), 
+                                  by = 1)) +
+  labs(
+    title = "Scent Popularity as % of Yearly Releases",
+    subtitle = "Accounting for variation in the number of perfumes scraped per year",
+    x = "Year",
+    y = "Percentage of Total Perfumes (%)",
+    color = "Accord"
+  ) +
+  theme_minimal()
+
+
+# NEW
+# 1. Calculate the total number of "Creamy" perfumes per year across ALL brands
+total_creamy_per_year <- creamy_matrix %>%
+  group_by(Release_Year) %>%
+  summarize(total_creamy_count = n())
+
+# 2. Calculate each brand's count and join with the yearly totals
+brand_share_data <- creamy_matrix %>%
+  group_by(Release_Year, Brand) %>%
+  summarize(brand_creamy_count = n(), .groups = "drop") %>%
+  left_join(total_creamy_per_year, by = "Release_Year") %>%
+  mutate(share_pct = (brand_creamy_count / total_creamy_count) * 100)
+
+# 3. Identify the Top 10 brands (by total volume of creamy perfumes) to keep the graph readable
+top_10_creamy_brands <- creamy_matrix %>%
+  count(Brand, sort = TRUE) %>%
+  slice_max(n, n = 5) %>%
+  pull(Brand)
+
+# 4. Plot the results
+ggplot(brand_share_data %>% filter(Brand %in% top_10_creamy_brands), 
+       aes(x = Release_Year, y = share_pct, color = Brand)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.5) +
+  scale_x_continuous(breaks = seq(min(brand_share_data$Release_Year), 
+                                  max(brand_share_data$Release_Year), 
+                                  by = 2)) + # Label every 2 years to save space
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "Brand 'Market Share' of Creamy Perfumes",
+    subtitle = "Percentage of each year's total creamy releases attributed to each brand",
+    x = "Year",
+    y = "Share of Annual Creamy Releases (%)",
+    color = "Brand"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))

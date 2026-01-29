@@ -66,6 +66,7 @@ parfum_year_accords <- parfumo_data_clean %>%
   drop_na(Release_Year, Main_Accords) %>%
   filter(Release_Year > 1999)
 
+# Separate each unique accord into a T/F variable per perfume
 perfume_matrix <- parfum_year_accords %>%
   select(Release_Year, Main_Accords) %>%
   mutate(row_id = row_number()) %>%             # Keep track of original rows
@@ -74,7 +75,7 @@ perfume_matrix <- parfum_year_accords %>%
   pivot_wider(
     names_from = Main_Accords, 
     values_from = present, 
-    values_fill = 0                             # Replace NAs with 0
+    values_fill = 0                             # Replace NAs with 0, mark as false
   )
 
 

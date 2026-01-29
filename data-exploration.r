@@ -333,7 +333,7 @@ ggplot(brand_share_data %>% filter(Brand %in% top_10_creamy_brands),
 # Graphs that Aren't line graphs
 
 # 1. Create a FULL binary matrix (not just filtered for creamy)
-# We'll limit this to the Top 50 accords to keep the calculation clean
+# Limit to the Top 50 accords to keep the calculation clean
 top_50_accords <- parfum_year_accords %>%
   separate_longer_delim(Main_Accords, delim = ", ") %>%
   count(Main_Accords, sort = TRUE) %>%
@@ -348,14 +348,14 @@ full_matrix <- parfum_year_accords %>%
   pivot_wider(names_from = Main_Accords, values_from = present, values_fill = 0)
 
 # 2. Calculate Correlation of every column with the "Creamy" column
-# We remove metadata columns (row_id, Brand, Release_Year) first
+# Remove metadata columns (row_id, Brand, Release_Year)
 cor_data <- full_matrix %>%
   select(where(is.numeric), -row_id, -Release_Year) %>%
   cor() %>%
   as.data.frame() %>%
   select(Creamy) %>%                  # Look specifically at Creamy's relationships
   rownames_to_column("Accord") %>%
-  filter(Accord != "Creamy") %>%      # Remove the self-correlation (which is 1)
+  filter(Accord != "Creamy") %>%      # Remove the self-correlation
   slice_max(Creamy, n = 15)           # Get the top 15 strongest correlations
 
 # 3. Build the Correlation Graph
